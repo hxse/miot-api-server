@@ -25,7 +25,15 @@ from miot_api_server.errors import (
     LoginSessionExpiredError,
     LoginSessionNotFoundError,
 )
-from miot_api_server.schemas import DevicePowerCapability, DevicePowerCandidate, DeviceSummary
+from miot_api_server.schemas import (
+    DevicePowerCapability,
+    DevicePowerCandidate,
+    DeviceSummary,
+)
+
+
+POWER_PROPERTY_PRIORITY = ("on", "switch_status", "switch", "power", "status")
+POWER_PROPERTY_NAMES = frozenset(POWER_PROPERTY_PRIORITY)
 
 
 @dataclass(slots=True)
@@ -89,7 +97,10 @@ class MijiaProvider:
 
         # 这里复用 mijiaAPI 现成扫码流程的内部步骤，因此要求当前依赖解析保持在已验证版本。
         location_data = api._get_location()
-        if location_data.get("code") == 0 and location_data.get("message") == "刷新Token成功":
+        if (
+            location_data.get("code") == 0
+            and location_data.get("message") == "刷新Token成功"
+        ):
             api._save_auth_data()
             api._init_session()
             return {"already_logged_in": True}
@@ -109,7 +120,9 @@ class MijiaProvider:
             "Content-Type": "application/x-www-form-urlencoded",
             "Connection": "keep-alive",
         }
-        login_ret = requests.get(api.login_url, headers=headers, params=location_data, timeout=30)
+        login_ret = requests.get(
+            api.login_url, headers=headers, params=location_data, timeout=30
+        )
         login_data = api._handle_ret(login_ret)
 
         session_id = secrets.token_urlsafe(18)
@@ -150,16 +163,27 @@ class MijiaProvider:
             lp_ret = session.get(pending.lp, headers=headers, timeout=timeout_seconds)
             lp_data = api._handle_ret(lp_ret)
         except requests.exceptions.Timeout as exc:
-            raise LoginPendingError("二维码尚未确认，请继续在米家 APP 中完成扫码") from exc
+            raise LoginPendingError(
+                "二维码尚未确认，请继续在米家 APP 中完成扫码"
+            ) from exc
         except LoginError as exc:
             raise LoginProcessError(str(exc)) from exc
 
-        auth_keys = ["psecurity", "nonce", "ssecurity", "passToken", "userId", "cUserId"]
+        auth_keys = [
+            "psecurity",
+            "nonce",
+            "ssecurity",
+            "passToken",
+            "userId",
+            "cUserId",
+        ]
         for key in auth_keys:
             api.auth_data[key] = lp_data[key]
         session.get(lp_data["location"], headers=headers, timeout=30)
         api.auth_data.update(session.cookies.get_dict())
-        api.auth_data["expireTime"] = int((datetime.now() + timedelta(days=30)).timestamp() * 1000)
+        api.auth_data["expireTime"] = int(
+            (datetime.now() + timedelta(days=30)).timestamp() * 1000
+        )
         api._save_auth_data()
         api._init_session()
         self.pending_logins.pop(session_id, None)
@@ -177,13 +201,19 @@ class MijiaProvider:
             deduped[device["did"]] = device
         return list(deduped.values())
 
+    def _is_power_property(self, prop: dict[str, Any]) -> bool:
+        # 只把明确表达电源语义的可写布尔属性纳入 power，避免误控普通布尔开关。
+        if prop.get("type") != "bool":
+            return False
+        if "w" not in prop.get("rw", ""):
+            return False
+        return prop.get("name") in POWER_PROPERTY_NAMES
+
     def _get_bool_power_candidates(self, model: str) -> list[DevicePowerCandidate]:
         spec = get_device_info(model, cache_path=self.settings.spec_cache_dir)
         candidates: list[DevicePowerCandidate] = []
         for prop in spec.get("properties", []):
-            if prop["type"] != "bool":
-                continue
-            if "w" not in prop["rw"]:
+            if not self._is_power_property(prop):
                 continue
             candidates.append(
                 DevicePowerCandidate(
@@ -201,15 +231,13 @@ class MijiaProvider:
                 return device
         raise DeviceNotFoundError(f"未找到 did={did} 的设备")
 
-    def _resolve_default_power_property_name(self, candidates: list[DevicePowerCandidate]) -> str | None:
-        preferred_order = ["on", "switch_status", "switch", "power", "status"]
-        for name in preferred_order:
+    def _resolve_default_power_property_name(
+        self, candidates: list[DevicePowerCandidate]
+    ) -> str | None:
+        for name in POWER_PROPERTY_PRIORITY:
             for candidate in candidates:
                 if candidate.name == name:
                     return candidate.name
-
-        if len(candidates) == 1:
-            return candidates[0].name
 
         return None
 
@@ -247,7 +275,9 @@ class MijiaProvider:
     def get_device(self, did: str) -> DeviceSummary:
         return self._summarize_device(self._find_device(did))
 
-    def _select_power_property_name(self, model: str, preferred_name: str | None) -> str:
+    def _select_power_property_name(
+        self, model: str, preferred_name: str | None
+    ) -> str:
         power = self._build_power_capability(model)
         if not power.supported:
             raise DeviceCapabilityNotSupportedError("该设备不支持 power 能力")
@@ -268,9 +298,13 @@ class MijiaProvider:
             f"该设备存在多个 power 候选属性，请显式指定 property_name，可选值为 {candidate_names}"
         )
 
-    def set_device_power(self, did: str, is_on: bool, preferred_name: str | None) -> dict[str, Any]:
+    def set_device_power(
+        self, did: str, is_on: bool, preferred_name: str | None
+    ) -> dict[str, Any]:
         device = self._find_device(did)
-        power_property_name = self._select_power_property_name(device["model"], preferred_name)
+        power_property_name = self._select_power_property_name(
+            device["model"], preferred_name
+        )
         api = self._require_api()
         power_device = mijiaDevice(api=api, did=device["did"])
         power_device.set(power_property_name, is_on)

@@ -13,6 +13,14 @@ uv-run:
     test -n "{{app_token}}" || (echo "APP_TOKEN is required and cannot be blank" >&2 && exit 1)
     APP_TOKEN="{{app_token}}" MIOT_AUTH_PATH="{{uv_auth_path}}" MIOT_SPEC_CACHE_DIR="{{uv_spec_cache_dir}}" uv run --no-project uvicorn "{{app_module}}" --host "{{uv_run_host}}" --port "{{port}}"
 
+# 运行类型检查。
+check:
+    uvx ty check
+
+# 统一格式化代码。
+format:
+    uvx ruff format
+
 # 构建 Docker 镜像。
 docker-build:
     docker build -t miot-api-server:local .

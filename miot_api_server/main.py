@@ -53,7 +53,9 @@ def get_provider(request: Request) -> MijiaProvider:
 async def handle_app_error(_: Request, exc: AppError) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,
-        content=ErrorResponse(detail=exc.message, error_code=exc.error_code).model_dump(),
+        content=ErrorResponse(
+            detail=exc.message, error_code=exc.error_code
+        ).model_dump(),
     )
 
 
@@ -68,7 +70,10 @@ async def require_bearer_token(request: Request, call_next):
 
     # 统一用 Bearer 头做最小鉴权，并使用常量时间比较减少直接字符串比较带来的泄露面。
     if not secrets.compare_digest(authorization, expected):
-        return JSONResponse(status_code=401, content={"detail": "Unauthorized", "error_code": "unauthorized"})
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Unauthorized", "error_code": "unauthorized"},
+        )
 
     return await call_next(request)
 
@@ -82,6 +87,7 @@ def build_openapi_schema() -> dict[str, object]:
         description="Thin FastAPI wrapper around mijia-api",
         routes=app.routes,
     )
+
 
 @app.get("/healthz", response_model=HealthResponse, tags=["system"])
 async def healthz() -> HealthResponse:
@@ -110,8 +116,12 @@ def auth_login_start(request: Request) -> LoginStartResponse:
 
 
 @app.post("/auth/login/finish", response_model=LoginFinishResponse, tags=["auth"])
-def auth_login_finish(request: Request, payload: LoginFinishRequest) -> LoginFinishResponse:
-    result = get_provider(request).finish_login(payload.session_id, payload.timeout_seconds)
+def auth_login_finish(
+    request: Request, payload: LoginFinishRequest
+) -> LoginFinishResponse:
+    result = get_provider(request).finish_login(
+        payload.session_id, payload.timeout_seconds
+    )
     return LoginFinishResponse(**result)
 
 
@@ -125,23 +135,31 @@ def get_device(request: Request, did: str) -> DeviceSummary:
     return get_provider(request).get_device(did)
 
 
-@app.post("/devices/{did}/power/on", response_model=DevicePowerResponse, tags=["devices"])
+@app.post(
+    "/devices/{did}/power/on", response_model=DevicePowerResponse, tags=["devices"]
+)
 def turn_device_power_on(
     request: Request,
     did: str,
     payload: DevicePowerRequest | None = None,
 ) -> DevicePowerResponse:
-    result = get_provider(request).set_device_power(did, True, payload.property_name if payload else None)
+    result = get_provider(request).set_device_power(
+        did, True, payload.property_name if payload else None
+    )
     return DevicePowerResponse(**result)
 
 
-@app.post("/devices/{did}/power/off", response_model=DevicePowerResponse, tags=["devices"])
+@app.post(
+    "/devices/{did}/power/off", response_model=DevicePowerResponse, tags=["devices"]
+)
 def turn_device_power_off(
     request: Request,
     did: str,
     payload: DevicePowerRequest | None = None,
 ) -> DevicePowerResponse:
-    result = get_provider(request).set_device_power(did, False, payload.property_name if payload else None)
+    result = get_provider(request).set_device_power(
+        did, False, payload.property_name if payload else None
+    )
     return DevicePowerResponse(**result)
 
 

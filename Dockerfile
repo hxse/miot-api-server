@@ -2,11 +2,13 @@ FROM python:3.12-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    UV_LINK_MODE=copy
+    UV_LINK_MODE=copy \
+    UV_VERSION=0.9.18
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir uv
+# 构建工具固定版本，避免锁文件之外的工具链漂移影响镜像可复现性。
+RUN pip install --no-cache-dir "uv==${UV_VERSION}"
 
 COPY pyproject.toml uv.lock README.md ./
 COPY miot_api_server ./miot_api_server
