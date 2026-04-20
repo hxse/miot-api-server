@@ -1,5 +1,13 @@
 # Task Index
 
+## 2026-04-20.3-pydantic-input-contract
+
+- 目标：收紧公开请求体输入 contract，对登录完成请求的 `session_id` 与设备电源控制请求的 `property_name` 增加去空白、非空与长度约束。
+- 级别：`A` 类。
+- 当前状态：已完成代码落地与最终验证。
+- 已冻结内容：`session_id` 去空白、非空、最大长度 `128`；`property_name` 去空白、非空；`timeout_seconds` 保留非 strict int 解析；响应模型不全局 strict。
+- 未在本任务中解决：真实 HTTP 端到端请求、真实米家扫码登录、真实设备云控、全局 Pydantic strict 与配置层重构。
+
 ## 2026-04-20.2-review-fixes
 
 - 目标：修复全面审查发现的问题，重点收紧 `power` 控制识别语义，补齐 Docker 与仓库入口 contract，并修正 VPS 部署文档可复制性。

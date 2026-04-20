@@ -1,6 +1,16 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Annotated
+
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+
+
+SessionId = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=128)
+]
+PowerPropertyName = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1)
+]
 
 
 class ErrorResponse(BaseModel):
@@ -34,7 +44,7 @@ class LoginStartResponse(BaseModel):
 class LoginFinishRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    session_id: str
+    session_id: SessionId
     timeout_seconds: int = Field(default=120, ge=1, le=180)
 
 
@@ -70,7 +80,7 @@ class DeviceSummary(BaseModel):
 class DevicePowerRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    property_name: str | None = None
+    property_name: PowerPropertyName | None = None
 
 
 class DevicePowerResponse(BaseModel):
