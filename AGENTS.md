@@ -472,8 +472,9 @@
     *   第一次备份可由用户执行：`jj bookmark create backup -r @-`，然后执行 `jj git push --bookmark backup`。
     *   后续更新备份可由用户执行：`jj bookmark move backup --to @-`，然后执行 `jj git push --bookmark backup`。
     *   该备份线只表示临时同步点，不代表 Task 完成基线，也不代表正式发布线。
+    *   若用户第一次在本地创建或移动 `main`，但本地 `main` 还未跟踪远端 `origin/main`，应先由用户执行：`jj bookmark track main --remote origin`。
     *   若用户决定把当前已收口 task stack 正式推到主线 `main`，应由用户自己执行：`jj bookmark move main --to @-`，然后执行 `jj git push --bookmark main`。
-    *   这里默认假设 `@-` 是当前 task stack 的顶端提交；若主线目标不是 `main`，或待发布 revision 不是 `@-`，应先由用户确认再执行。
+    *   这里默认假设 `@-` 是当前 task stack 的顶端提交，且本地 `main` 已正确跟踪远端 `origin/main`；若主线目标不是 `main`，待发布 revision 不是 `@-`，或 tracking 关系尚未建立，应先由用户确认再执行。
     *   AI 可以解释和提醒该备份技巧，但不得擅自创建、移动、推送或删除 `backup` / `wip` bookmark。
 
 ### 12.7 最终报告要求

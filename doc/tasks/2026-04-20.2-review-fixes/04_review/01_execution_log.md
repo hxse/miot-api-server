@@ -1,0 +1,21 @@
+# 执行记录
+
+- 已新增 `2026-04-20.2-review-fixes` task，用于承接上一轮全面审查后的修复。
+- 已在 `Provider` 中新增 power-like 属性名白名单：`on`、`switch_status`、`switch`、`power`、`status`。
+- 已将 `power` 候选筛选从“所有可写布尔属性”收紧为“明确 power-like 的可写布尔属性”。
+- 已移除单个非 power-like 布尔属性自动成为默认 `power` 属性的行为。
+- 已保留 `property_name` 只能匹配当前设备已识别 `power` 候选的约束。
+- 已修正 README 的 VPS 部署命令块，移除不可执行的裸 `or`。
+- 已将 Docker 构建期 `uv` 固定为 `0.9.18`。
+- 已正式记录当前工作副本中的 `just check` 与 `just format` 入口。
+- 已运行 `just format`，格式化影响 `miot_api_server/main.py` 与 `miot_api_server/provider.py`。
+- 已执行 `uv run --no-project python -m compileall miot_api_server`，通过。
+- 已执行 `just check`，通过。
+- 已执行 `just --list`，确认当前入口包括 `uv-run`、`docker-build`、`docker-run`、`check`、`format`。
+- 已执行函数级 power 语义验证，覆盖非 power-like 布尔属性不支持、明确 power-like 属性自动默认、多候选优先级、非法 `property_name` 报错与无候选设备不支持。
+- 已执行 `docker build -t miot-api-server:review-fixes .`，通过。
+- 已验证缺失 `APP_TOKEN` 时容器启动失败。
+- 已验证带 `APP_TOKEN` 启动后容器内 `/healthz` 返回 `200`。
+- 已验证容器内 `/openapi.json` 未鉴权返回 `401`，带 Bearer token 返回 `200`。
+- 已清理临时容器 `miot-api-server-review-fixes` 与临时镜像 `miot-api-server:review-fixes`。
+- Docker build 仍提示 `SecretsUsedInArgOrEnv` 针对 `MIOT_AUTH_PATH`，当前判断该值只是路径默认值，不是 secret；本任务不调整该环境变量写法。

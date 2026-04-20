@@ -1,5 +1,13 @@
 # Task Index
 
+## 2026-04-20.2-review-fixes
+
+- 目标：修复全面审查发现的问题，重点收紧 `power` 控制识别语义，补齐 Docker 与仓库入口 contract，并修正 VPS 部署文档可复制性。
+- 级别：`A` 类。
+- 当前状态：已完成代码落地、文档更新与最终验证。
+- 已冻结内容：power-like 属性名白名单、非 power-like 布尔写属性不进入 `power` 候选、`just check` / `just format` 正式入口、Docker 构建期 `uv` 版本 pin、README 部署命令块可复制执行。
+- 未在本任务中解决：真实米家扫码登录、真实设备云控执行、HTTPS / 反向代理 / 防火墙、通用 MIoT DSL 与新设备能力扩展。
+
 ## 2026-04-20.1-docker-image-and-runtime-delivery
 
 - 目标：把当前已完成 `uv run` 基线的 `miot-api-server` 收口成单镜像 Docker 交付物，并冻结本地 `docker build` 与 VPS `docker run` 的最小运行 contract。
