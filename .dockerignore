@@ -1,0 +1,16 @@
+.git
+.jj
+.codex
+.venv
+.data
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+doc/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/

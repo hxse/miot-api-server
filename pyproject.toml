@@ -1,0 +1,14 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "miot-api-server"
+version = "0.1.0"
+description = "Thin FastAPI wrapper around mijia-api"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["fastapi", "uvicorn", "mijiaAPI"]
+
+[tool.uv]
+package = true
