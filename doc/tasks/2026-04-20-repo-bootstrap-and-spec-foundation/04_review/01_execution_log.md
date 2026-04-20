@@ -1,0 +1,28 @@
+# 执行记录
+
+- 已将 `AGENTS.md` 中的业务运行时真值继续下沉到 task。
+- 已将 `justfile` 简化为仅保留 `uv run` 入口。
+- 已新增 `pyproject.toml`，并以当前 `uv.lock` 中已解析的 `mijiaAPI 3.0.5` 作为实现验证基线。
+- 已落地第一阶段最小 FastAPI 闭环，包括专用登录页、登录初始化、设备发现、设备能力描述、设备级 `power` 控制、`/auth/reset` 与健康检查。
+- 已新增公网安全论述与安全 contract。
+- 已收口当前 Provider 主链：设备控制动作统一通过 `set_device_power(did, is_on, property_name)` 表达，并显式区分“支持 power / 需要选择属性 / 不支持 power”三种状态。
+- 已收口当前 schema：设备列表返回 `power` 能力描述对象。
+- 已扩展 `/login` 页面，登录成功后可直接加载设备列表、展示 `power` 候选属性并按设备发起控制。
+- `/login` 页面当前会在每个支持 `power` 的设备卡片中生成可切换的 curl / JS 示例代码；默认显示单行 curl，切到 `js` 后显示 JS `fetch` 示例。两种模式都统一使用占位 token `YOUR_APP_TOKEN`，并自动带入当前设备 `did` 与当前属性选择结果。
+- 扫码页当前通过服务端基于 `login_url` 生成 `qr_data_url`，页面优先使用本地二维码数据。
+- “当前账号已登录”分支当前会显式切回占位态，并显示“当前账号已登录，无需显示二维码。”。
+- 已新增 `POST /auth/reset`，并验证它会删除认证文件、清空待完成扫码会话。
+- 已验证 `/login` 页面存在“重置测试状态”按钮，并绑定到 `/auth/reset` 与浏览器本地状态重置逻辑。
+- 已将直接调用同步 `MijiaProvider` 的业务路由统一改为普通 `def`，避免在 `async def` 路由中直接承接同步云请求。
+- 已使用 `inspect.iscoroutinefunction(...)` 校验这些业务路由，结果均为 `False`，确认它们已经由 coroutine endpoint 收口为普通 `def` endpoint。
+- 已验证 `just --list` 仅暴露 `uv-run`。
+- 已验证 `just uv-run` 在缺失 `APP_TOKEN` 时立即失败。
+- 已将 `just uv-run` 的默认绑定地址收口为 `0.0.0.0`；该语义只属于当前 recipe，不外溢成其他入口的全局默认。
+- 已验证应用当前路由集合为：`/auth/status`、`/auth/reset`、`/auth/login/start`、`/auth/login/finish`、`/devices`、`/devices/{did}`、`/devices/{did}/power/on`、`/devices/{did}/power/off`、`/healthz`、`/login`、`/docs`、`/redoc`、`/openapi.json`。
+- 已验证 `/openapi.json` 未授权返回 `401`；`GET /devices`、`GET /devices/{did}` 在未登录时返回 `409 authentication_required`。
+- 已通过 fake provider 校验 `power` 能力选择逻辑：单候选设备自动选择默认属性，多候选设备在未显式指定时返回 `409 device_capability_selection_required`，不支持 `power` 的设备返回 `409 device_capability_not_supported`。
+- 登录等待流程当前在二维码生成后立即开始等待扫码确认。
+- 页面当前不展示本地假设的二维码有效期文案。
+- 已验证 `/docs` 与 `/redoc` 的 HTML 壳页包含 token 输入后再拉取 `/openapi.json` 的逻辑，不依赖 query string 传 token；`/login`、`/docs`、`/redoc` 共享浏览器会话内的 token 存储。
+- 已验证 `APP_TOKEN=test-token timeout 3s just uv-run` 可以完成应用启动与生命周期初始化；当前环境在端口绑定阶段失败，因此未把端口监听失败误判为应用逻辑错误。
+- 试图使用 `fastapi.testclient` 做校验时发现当前环境缺少 `httpx`；随后改用直接 ASGI 调用或函数级校验完成等价验证，未将该依赖缺口误判为应用缺陷。
