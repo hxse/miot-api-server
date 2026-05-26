@@ -5,12 +5,21 @@
   const loadButton = document.getElementById("load-docs");
   const clearButton = document.getElementById("clear-token");
   const swaggerContainer = document.getElementById("swagger-ui");
+  const apiBaseUrl = document.body.dataset.apiBaseUrl || "/api";
   let currentToken = sessionStorage.getItem(storageKey) || "";
 
   tokenInput.value = currentToken;
 
   function setStatus(message) {
     statusBox.textContent = message;
+  }
+
+  function rewriteApiUrl(url) {
+    const parsed = new URL(url, window.location.origin);
+    const path = parsed.pathname.startsWith("/api")
+      ? parsed.pathname.slice("/api".length) || "/"
+      : parsed.pathname;
+    return `${apiBaseUrl}${path}${parsed.search}${parsed.hash}`;
   }
 
   async function loadDocs() {
@@ -20,7 +29,7 @@
       return;
     }
 
-    const response = await fetch("/openapi.json", {
+    const response = await fetch(`${apiBaseUrl}/openapi.json`, {
       headers: {
         Authorization: `Bearer ${token}`,
       },
@@ -45,6 +54,7 @@
       requestInterceptor: (request) => {
         request.headers = request.headers || {};
         request.headers.Authorization = `Bearer ${currentToken}`;
+        request.url = rewriteApiUrl(request.url);
         return request;
       },
     });

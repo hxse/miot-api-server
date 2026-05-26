@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from html import escape
+
 from miot_api_server.login_page_script import LOGIN_PAGE_SCRIPT
 from miot_api_server.login_page_style import LOGIN_PAGE_STYLE
 
 
-def build_login_html() -> str:
+def build_login_html(api_base_url: str) -> str:
+    escaped_api_base_url = escape(api_base_url, quote=True)
     return (
         """<!DOCTYPE html>
 <html lang="zh-CN">
@@ -18,7 +21,9 @@ def build_login_html() -> str:
         + """
     </style>
   </head>
-  <body>
+  <body data-api-base-url=\""""
+        + escaped_api_base_url
+        + """\">
     <main class="page">
       <section class="hero">
         <h1>米家登录与设备控制</h1>

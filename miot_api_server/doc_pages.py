@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from html import escape
 
-def build_swagger_html() -> str:
-    return """<!DOCTYPE html>
+
+def build_swagger_html(api_base_url: str) -> str:
+    escaped_api_base_url = escape(api_base_url, quote=True)
+    return (
+        """<!DOCTYPE html>
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
@@ -11,7 +15,9 @@ def build_swagger_html() -> str:
     <link rel="stylesheet" href="/static/vendor/swagger-ui/swagger-ui.css" />
     <link rel="stylesheet" href="/static/docs/docs.css" />
   </head>
-  <body>
+  <body data-api-base-url=\""""
+        + escaped_api_base_url
+        + """\">
     <div class="toolbar">
       <strong>miot-api-server Docs</strong>
       <input id="token-input" type="password" placeholder="输入 APP_TOKEN 后加载文档" />
@@ -25,10 +31,13 @@ def build_swagger_html() -> str:
     <script src="/static/docs/swagger-docs.js"></script>
   </body>
 </html>"""
+    )
 
 
-def build_redoc_html() -> str:
-    return """<!DOCTYPE html>
+def build_redoc_html(api_base_url: str) -> str:
+    escaped_api_base_url = escape(api_base_url, quote=True)
+    return (
+        """<!DOCTYPE html>
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
@@ -36,7 +45,9 @@ def build_redoc_html() -> str:
     <title>miot-api-server redoc</title>
     <link rel="stylesheet" href="/static/docs/docs.css" />
   </head>
-  <body>
+  <body data-api-base-url=\""""
+        + escaped_api_base_url
+        + """\">
     <div class="toolbar">
       <strong>miot-api-server ReDoc</strong>
       <input id="token-input" type="password" placeholder="输入 APP_TOKEN 后加载文档" />
@@ -49,3 +60,4 @@ def build_redoc_html() -> str:
     <script src="/static/docs/redoc-docs.js"></script>
     </body>
 </html>"""
+    )

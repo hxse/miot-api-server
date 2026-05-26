@@ -4,13 +4,19 @@ from contextlib import asynccontextmanager
 from functools import lru_cache
 from pathlib import Path
 import secrets
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from miot_api_server.config import ensure_runtime_directories, get_settings
+from miot_api_server.config import (
+    ensure_runtime_directories,
+    get_settings,
+    resolve_cors_allowed_origins,
+)
 from miot_api_server.doc_pages import build_redoc_html, build_swagger_html
 from miot_api_server.errors import AppError
 from miot_api_server.login_page import build_login_html
@@ -30,23 +36,38 @@ from miot_api_server.schemas import (
 
 
 STATIC_DIR = Path(__file__).parent / "static"
+API_PREFIX = "/api"
 PUBLIC_PATHS = frozenset({"/", "/healthz", "/docs", "/redoc", "/login"})
-DOCS_SECURITY_HEADERS = {
-    # 文档页会处理浏览器会话 token，因此只允许加载同源脚本，避免第三方脚本读取 token。
-    "Content-Security-Policy": (
-        "default-src 'self'; "
-        "script-src 'self'; "
-        "style-src 'self' 'unsafe-inline'; "
-        "img-src 'self' data: blob:; "
-        "connect-src 'self'; "
-        "object-src 'none'; "
-        "base-uri 'none'; "
-        "frame-ancestors 'none'"
-    ),
-    "Referrer-Policy": "no-referrer",
-    "X-Content-Type-Options": "nosniff",
-    "X-Frame-Options": "DENY",
-}
+
+
+def _api_connect_source(api_base_url: str) -> str | None:
+    parsed = urlparse(api_base_url)
+    if not parsed.scheme or not parsed.netloc:
+        return None
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def build_security_headers(api_base_url: str) -> dict[str, str]:
+    # 页面会处理浏览器会话 token；跨域 API 只允许显式配置的 API origin。
+    connect_sources = ["'self'"]
+    api_origin = _api_connect_source(api_base_url)
+    if api_origin is not None:
+        connect_sources.append(api_origin)
+    return {
+        "Content-Security-Policy": (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data: blob:; "
+            f"connect-src {' '.join(connect_sources)}; "
+            "object-src 'none'; "
+            "base-uri 'none'; "
+            "frame-ancestors 'none'"
+        ),
+        "Referrer-Policy": "no-referrer",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+    }
 
 
 @asynccontextmanager
@@ -65,6 +86,15 @@ app = FastAPI(
     openapi_url=None,
     lifespan=lifespan,
 )
+
+cors_allowed_origins = resolve_cors_allowed_origins()
+if cors_allowed_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(cors_allowed_origins),
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type"],
+    )
 
 # 静态资源只承载本地 vendor 文档脚本和样式，不包含认证文件、缓存或业务数据。
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -90,6 +120,8 @@ async def handle_app_error(_: Request, exc: AppError) -> JSONResponse:
 
 @app.middleware("http")
 async def require_bearer_token(request: Request, call_next):
+    if request.method == "OPTIONS":
+        return await call_next(request)
     if is_public_path(request.url.path):
         return await call_next(request)
 
@@ -134,23 +166,29 @@ async def index() -> RedirectResponse:
 # 这些业务路由当前都直接落到同步版 MijiaProvider 与 mijiaAPI。
 # 统一保持为 def，让 FastAPI 在线程池里执行它们，避免在 async 路由里直接阻塞事件循环。
 #
-@app.get("/auth/status", response_model=AuthStatusResponse, tags=["auth"])
+@app.get(f"{API_PREFIX}/auth/status", response_model=AuthStatusResponse, tags=["auth"])
 def auth_status(request: Request) -> AuthStatusResponse:
     return AuthStatusResponse(**get_provider(request).auth_status())
 
 
-@app.post("/auth/reset", response_model=AuthResetResponse, tags=["auth"])
+@app.post(f"{API_PREFIX}/auth/reset", response_model=AuthResetResponse, tags=["auth"])
 def auth_reset(request: Request) -> AuthResetResponse:
     # 该接口只清理本服务持久化的米家认证状态与待完成扫码会话，便于从头联调。
     return AuthResetResponse(**get_provider(request).reset_auth_state())
 
 
-@app.post("/auth/login/start", response_model=LoginStartResponse, tags=["auth"])
+@app.post(
+    f"{API_PREFIX}/auth/login/start", response_model=LoginStartResponse, tags=["auth"]
+)
 def auth_login_start(request: Request) -> LoginStartResponse:
     return LoginStartResponse(**get_provider(request).start_login())
 
 
-@app.post("/auth/login/finish", response_model=LoginFinishResponse, tags=["auth"])
+@app.post(
+    f"{API_PREFIX}/auth/login/finish",
+    response_model=LoginFinishResponse,
+    tags=["auth"],
+)
 def auth_login_finish(
     request: Request, payload: LoginFinishRequest
 ) -> LoginFinishResponse:
@@ -160,18 +198,22 @@ def auth_login_finish(
     return LoginFinishResponse(**result)
 
 
-@app.get("/devices", response_model=list[DeviceSummary], tags=["devices"])
+@app.get(f"{API_PREFIX}/devices", response_model=list[DeviceSummary], tags=["devices"])
 def list_devices(request: Request) -> list[DeviceSummary]:
     return get_provider(request).list_devices()
 
 
-@app.get("/devices/{did}", response_model=DeviceSummary, tags=["devices"])
+@app.get(
+    f"{API_PREFIX}/devices/{{did}}", response_model=DeviceSummary, tags=["devices"]
+)
 def get_device(request: Request, did: str) -> DeviceSummary:
     return get_provider(request).get_device(did)
 
 
 @app.post(
-    "/devices/{did}/power/on", response_model=DevicePowerResponse, tags=["devices"]
+    f"{API_PREFIX}/devices/{{did}}/power/on",
+    response_model=DevicePowerResponse,
+    tags=["devices"],
 )
 def turn_device_power_on(
     request: Request,
@@ -185,7 +227,9 @@ def turn_device_power_on(
 
 
 @app.post(
-    "/devices/{did}/power/off", response_model=DevicePowerResponse, tags=["devices"]
+    f"{API_PREFIX}/devices/{{did}}/power/off",
+    response_model=DevicePowerResponse,
+    tags=["devices"],
 )
 def turn_device_power_off(
     request: Request,
@@ -198,7 +242,7 @@ def turn_device_power_off(
     return DevicePowerResponse(**result)
 
 
-@app.get("/openapi.json", include_in_schema=False)
+@app.get(f"{API_PREFIX}/openapi.json", include_in_schema=False)
 async def openapi_json() -> JSONResponse:
     return JSONResponse(build_openapi_schema())
 
@@ -206,15 +250,27 @@ async def openapi_json() -> JSONResponse:
 @app.get("/docs", include_in_schema=False)
 async def swagger_docs() -> HTMLResponse:
     # 文档壳页可以打开，但只有输入正确 token 后才会加载真正的 schema。
-    return HTMLResponse(build_swagger_html(), headers=DOCS_SECURITY_HEADERS)
+    settings = get_settings()
+    return HTMLResponse(
+        build_swagger_html(settings.api_base_url),
+        headers=build_security_headers(settings.api_base_url),
+    )
 
 
 @app.get("/redoc", include_in_schema=False)
 async def redoc_docs() -> HTMLResponse:
-    return HTMLResponse(build_redoc_html(), headers=DOCS_SECURITY_HEADERS)
+    settings = get_settings()
+    return HTMLResponse(
+        build_redoc_html(settings.api_base_url),
+        headers=build_security_headers(settings.api_base_url),
+    )
 
 
 @app.get("/login", include_in_schema=False)
 async def login_page() -> HTMLResponse:
     # 登录页本身允许匿名访问，但内部所有实际操作仍然统一走 Bearer token 鉴权。
-    return HTMLResponse(build_login_html())
+    settings = get_settings()
+    return HTMLResponse(
+        build_login_html(settings.api_base_url),
+        headers=build_security_headers(settings.api_base_url),
+    )

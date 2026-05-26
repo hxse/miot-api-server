@@ -26,6 +26,7 @@ LOGIN_PAGE_SCRIPT = (
       const refreshDevicesButton = document.getElementById("refresh-devices-button");
       const devicesMessage = document.getElementById("devices-message");
       const devicesContainer = document.getElementById("devices-container");
+      const apiBaseUrl = document.body.dataset.apiBaseUrl || "/api";
       let finishInFlight = false;
 
       tokenInput.value = sessionStorage.getItem(tokenStorageKey) || "";
@@ -54,6 +55,14 @@ LOGIN_PAGE_SCRIPT = (
         }
         sessionStorage.setItem(tokenStorageKey, token);
         return token;
+      }
+
+      function buildApiUrl(path) {
+        return `${apiBaseUrl}${path}`;
+      }
+
+      function buildAbsoluteApiUrl(path) {
+        return new URL(buildApiUrl(path), window.location.origin).toString();
       }
 
       function resetQrState(message = "点击上方按钮后，这里会显示二维码。") {
@@ -133,7 +142,7 @@ LOGIN_PAGE_SCRIPT = (
           options.body = JSON.stringify(payload);
         }
 
-        const response = await fetch(path, options);
+        const response = await fetch(buildApiUrl(path), options);
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
           const detail = data.detail || `HTTP ${response.status}`;
