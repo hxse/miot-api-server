@@ -3,6 +3,7 @@ from __future__ import annotations
 
 LOGIN_PAGE_EXAMPLE_SCRIPT = """
       const exampleTokenPlaceholder = "YOUR_APP_TOKEN";
+      const exampleApiBaseUrl = "https://miot-api.example.com/api";
 
       function resolvePowerPropertyName(device, selector) {
         const selected = selector.value.trim();
@@ -17,14 +18,14 @@ LOGIN_PAGE_EXAMPLE_SCRIPT = """
 
       function buildCurlCommand(device, isOn, propertyName) {
         const body = JSON.stringify({ property_name: propertyName });
-        const url = buildAbsoluteApiUrl(`/devices/${encodeURIComponent(device.did)}/power/${isOn ? "on" : "off"}`);
+        const url = buildExampleApiUrl(`/devices/${encodeURIComponent(device.did)}/power/${isOn ? "on" : "off"}`);
         // curl 示例统一使用占位 token，避免把浏览器会话里的真实 token 直接回显到页面。
         return `curl -X POST -H 'Authorization: Bearer ${exampleTokenPlaceholder}' -H 'Content-Type: application/json' -d '${body}' '${url}'`;
       }
 
       function buildJsCommand(device, isOn, propertyName) {
         const requestBody = `{ property_name: ${JSON.stringify(propertyName)} }`;
-        const url = buildAbsoluteApiUrl(`/devices/${encodeURIComponent(device.did)}/power/${isOn ? "on" : "off"}`);
+        const url = buildExampleApiUrl(`/devices/${encodeURIComponent(device.did)}/power/${isOn ? "on" : "off"}`);
         // JS 示例与 curl 示例一样，统一使用占位 token，避免把真实 token 回显到页面。
         return [
           "(async () => {",
@@ -40,6 +41,10 @@ LOGIN_PAGE_EXAMPLE_SCRIPT = """
           "  console.log(result);",
           "})();",
         ].join("\\n");
+      }
+
+      function buildExampleApiUrl(path) {
+        return `${exampleApiBaseUrl}${path}`;
       }
 
       function getExampleModeLabel(mode) {
