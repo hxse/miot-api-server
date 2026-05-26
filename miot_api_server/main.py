@@ -4,19 +4,13 @@ from contextlib import asynccontextmanager
 from functools import lru_cache
 from pathlib import Path
 import secrets
-from urllib.parse import urlparse
 
 from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from miot_api_server.config import (
-    ensure_runtime_directories,
-    get_settings,
-    resolve_cors_allowed_origins,
-)
+from miot_api_server.config import ensure_runtime_directories, get_settings
 from miot_api_server.doc_pages import build_redoc_html, build_swagger_html
 from miot_api_server.errors import AppError
 from miot_api_server.login_page import build_login_html
@@ -38,36 +32,22 @@ from miot_api_server.schemas import (
 STATIC_DIR = Path(__file__).parent / "static"
 API_PREFIX = "/api"
 PUBLIC_PATHS = frozenset({"/", "/healthz", "/docs", "/redoc", "/login"})
-
-
-def _api_connect_source(api_base_url: str) -> str | None:
-    parsed = urlparse(api_base_url)
-    if not parsed.scheme or not parsed.netloc:
-        return None
-    return f"{parsed.scheme}://{parsed.netloc}"
-
-
-def build_security_headers(api_base_url: str) -> dict[str, str]:
-    # 页面会处理浏览器会话 token；跨域 API 只允许显式配置的 API origin。
-    connect_sources = ["'self'"]
-    api_origin = _api_connect_source(api_base_url)
-    if api_origin is not None:
-        connect_sources.append(api_origin)
-    return {
-        "Content-Security-Policy": (
-            "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline'; "
-            "style-src 'self' 'unsafe-inline'; "
-            "img-src 'self' data: blob:; "
-            f"connect-src {' '.join(connect_sources)}; "
-            "object-src 'none'; "
-            "base-uri 'none'; "
-            "frame-ancestors 'none'"
-        ),
-        "Referrer-Policy": "no-referrer",
-        "X-Content-Type-Options": "nosniff",
-        "X-Frame-Options": "DENY",
-    }
+PAGE_SECURITY_HEADERS = {
+    # 页面会处理浏览器会话 token，因此只允许同源脚本与同源 API 请求。
+    "Content-Security-Policy": (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob:; "
+        "connect-src 'self'; "
+        "object-src 'none'; "
+        "base-uri 'none'; "
+        "frame-ancestors 'none'"
+    ),
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+}
 
 
 @asynccontextmanager
@@ -86,15 +66,6 @@ app = FastAPI(
     openapi_url=None,
     lifespan=lifespan,
 )
-
-cors_allowed_origins = resolve_cors_allowed_origins()
-if cors_allowed_origins:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=list(cors_allowed_origins),
-        allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type"],
-    )
 
 # 静态资源只承载本地 vendor 文档脚本和样式，不包含认证文件、缓存或业务数据。
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -250,27 +221,15 @@ async def openapi_json() -> JSONResponse:
 @app.get("/docs", include_in_schema=False)
 async def swagger_docs() -> HTMLResponse:
     # 文档壳页可以打开，但只有输入正确 token 后才会加载真正的 schema。
-    settings = get_settings()
-    return HTMLResponse(
-        build_swagger_html(settings.api_base_url),
-        headers=build_security_headers(settings.api_base_url),
-    )
+    return HTMLResponse(build_swagger_html(), headers=PAGE_SECURITY_HEADERS)
 
 
 @app.get("/redoc", include_in_schema=False)
 async def redoc_docs() -> HTMLResponse:
-    settings = get_settings()
-    return HTMLResponse(
-        build_redoc_html(settings.api_base_url),
-        headers=build_security_headers(settings.api_base_url),
-    )
+    return HTMLResponse(build_redoc_html(), headers=PAGE_SECURITY_HEADERS)
 
 
 @app.get("/login", include_in_schema=False)
 async def login_page() -> HTMLResponse:
     # 登录页本身允许匿名访问，但内部所有实际操作仍然统一走 Bearer token 鉴权。
-    settings = get_settings()
-    return HTMLResponse(
-        build_login_html(settings.api_base_url),
-        headers=build_security_headers(settings.api_base_url),
-    )
+    return HTMLResponse(build_login_html(), headers=PAGE_SECURITY_HEADERS)

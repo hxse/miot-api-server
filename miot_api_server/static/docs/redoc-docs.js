@@ -3,7 +3,6 @@
   const tokenInput = document.getElementById("token-input");
   const statusBox = document.getElementById("status");
   const loadButton = document.getElementById("load-docs");
-  const apiBaseUrl = document.body.dataset.apiBaseUrl || "/api";
   tokenInput.value = sessionStorage.getItem(storageKey) || "";
 
   function setStatus(message) {
@@ -17,7 +16,7 @@
       return;
     }
 
-    const response = await fetch(`${apiBaseUrl}/openapi.json`, {
+    const response = await fetch("/api/openapi.json", {
       headers: {
         Authorization: `Bearer ${token}`,
       },

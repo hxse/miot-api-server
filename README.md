@@ -15,8 +15,6 @@ docker run -d \
   --restart unless-stopped \
   -p 6219:8000 \
   -e APP_TOKEN='your-token' \
-  -e MIOT_API_BASE_URL='https://miot-api.hxse.top/api' \
-  -e MIOT_CORS_ALLOWED_ORIGINS='https://miot.hxse.top' \
   -v miot-api-server-data:/data/mijia \
   miot-api-server:local
 curl http://127.0.0.1:6219/healthz
@@ -33,8 +31,6 @@ docker run -d \
   --restart unless-stopped \
   -p 6219:8000 \
   -e APP_TOKEN='your-token' \
-  -e MIOT_API_BASE_URL='https://miot-api.hxse.top/api' \
-  -e MIOT_CORS_ALLOWED_ORIGINS='https://miot.hxse.top' \
   -v miot-api-server-data:/data/mijia \
   miot-api-server:local
 curl http://127.0.0.1:6219/healthz
@@ -45,12 +41,18 @@ curl http://127.0.0.1:6219/healthz
 推荐把网页入口和 API 入口拆成两个域名。网页域名套 Authelia；API 域名只透出 `/api/*`，由服务内部的 `Authorization: Bearer APP_TOKEN` 保护。
 
 ```caddy
-miot.hxse.top {
-  import authelia_forward_auth
-  reverse_proxy 127.0.0.1:6219
+miot.example.com {
+  handle /api/* {
+    reverse_proxy 127.0.0.1:6219
+  }
+
+  handle {
+    import authelia_forward_auth
+    reverse_proxy 127.0.0.1:6219
+  }
 }
 
-miot-api.hxse.top {
+miot-api.example.com {
   handle /api/* {
     reverse_proxy 127.0.0.1:6219
   }
@@ -59,4 +61,4 @@ miot-api.hxse.top {
 }
 ```
 
-网页会请求 `MIOT_API_BASE_URL`；跨域请求需要把网页域名写入 `MIOT_CORS_ALLOWED_ORIGINS`。本地调试不设置这两个变量时，默认使用同源 `/api`。
+应用内部不关心域名，也不做 CORS 配置；网页永远请求同源 `/api`。如果需要 API 域名给 curl 使用，只在 Caddy 层把同一组 `/api/*` 转发出去。

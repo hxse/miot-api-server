@@ -26,7 +26,6 @@ LOGIN_PAGE_SCRIPT = (
       const refreshDevicesButton = document.getElementById("refresh-devices-button");
       const devicesMessage = document.getElementById("devices-message");
       const devicesContainer = document.getElementById("devices-container");
-      const apiBaseUrl = document.body.dataset.apiBaseUrl || "/api";
       let finishInFlight = false;
 
       tokenInput.value = sessionStorage.getItem(tokenStorageKey) || "";
@@ -58,7 +57,7 @@ LOGIN_PAGE_SCRIPT = (
       }
 
       function buildApiUrl(path) {
-        return `${apiBaseUrl}${path}`;
+        return `/api${path}`;
       }
 
       function buildAbsoluteApiUrl(path) {
