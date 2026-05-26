@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from functools import lru_cache
+from pathlib import Path
 import secrets
 
 from fastapi import FastAPI, Request
 from fastapi.openapi.utils import get_openapi
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from miot_api_server.config import ensure_runtime_directories, get_settings
 from miot_api_server.doc_pages import build_redoc_html, build_swagger_html
@@ -27,6 +29,26 @@ from miot_api_server.schemas import (
 )
 
 
+STATIC_DIR = Path(__file__).parent / "static"
+PUBLIC_PATHS = frozenset({"/", "/healthz", "/docs", "/redoc", "/login"})
+DOCS_SECURITY_HEADERS = {
+    # 文档页会处理浏览器会话 token，因此只允许加载同源脚本，避免第三方脚本读取 token。
+    "Content-Security-Policy": (
+        "default-src 'self'; "
+        "script-src 'self'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob:; "
+        "connect-src 'self'; "
+        "object-src 'none'; "
+        "base-uri 'none'; "
+        "frame-ancestors 'none'"
+    ),
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+}
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # 启动阶段先冻结配置；缺失 token 时直接拒绝启动，避免服务以不安全状态暴露到公网。
@@ -44,9 +66,16 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# 静态资源只承载本地 vendor 文档脚本和样式，不包含认证文件、缓存或业务数据。
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
 
 def get_provider(request: Request) -> MijiaProvider:
     return request.app.state.provider
+
+
+def is_public_path(path: str) -> bool:
+    return path in PUBLIC_PATHS or path.startswith("/static/")
 
 
 @app.exception_handler(AppError)
@@ -61,7 +90,7 @@ async def handle_app_error(_: Request, exc: AppError) -> JSONResponse:
 
 @app.middleware("http")
 async def require_bearer_token(request: Request, call_next):
-    if request.url.path in {"/healthz", "/docs", "/redoc", "/login"}:
+    if is_public_path(request.url.path):
         return await call_next(request)
 
     authorization = request.headers.get("authorization", "")
@@ -93,6 +122,12 @@ def build_openapi_schema() -> dict[str, object]:
 async def healthz() -> HealthResponse:
     # 健康检查只返回最小存活信息，不回显配置、设备状态或认证上下文。
     return HealthResponse(status="ok")
+
+
+@app.get("/", include_in_schema=False)
+async def index() -> RedirectResponse:
+    # 根路径只做体验入口，避免用户直接访问时看到业务接口的鉴权 JSON。
+    return RedirectResponse(url="/login", status_code=307)
 
 
 #
@@ -171,12 +206,12 @@ async def openapi_json() -> JSONResponse:
 @app.get("/docs", include_in_schema=False)
 async def swagger_docs() -> HTMLResponse:
     # 文档壳页可以打开，但只有输入正确 token 后才会加载真正的 schema。
-    return HTMLResponse(build_swagger_html())
+    return HTMLResponse(build_swagger_html(), headers=DOCS_SECURITY_HEADERS)
 
 
 @app.get("/redoc", include_in_schema=False)
 async def redoc_docs() -> HTMLResponse:
-    return HTMLResponse(build_redoc_html())
+    return HTMLResponse(build_redoc_html(), headers=DOCS_SECURITY_HEADERS)
 
 
 @app.get("/login", include_in_schema=False)

@@ -438,7 +438,7 @@ LOGIN_PAGE_SCRIPT = (
           }
           setMessage(devicesMessage, "设备列表加载成功。", "success");
         } catch (error) {
-          resetDevicesState("设备列表加载失败，请先确认已登录米家账号。");
+          resetDevicesState(`设备列表加载失败：${error.message}`);
           setMessage(devicesMessage, error.message);
         }
       }
