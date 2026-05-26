@@ -3,7 +3,7 @@ from __future__ import annotations
 
 LOGIN_PAGE_EXAMPLE_SCRIPT = """
       const exampleTokenPlaceholder = "YOUR_APP_TOKEN";
-      const exampleApiBaseUrl = "https://miot-api.example.com/api";
+      const fallbackExampleApiOrigin = "https://xxx.example.com";
 
       function resolvePowerPropertyName(device, selector) {
         const selected = selector.value.trim();
@@ -44,7 +44,57 @@ LOGIN_PAGE_EXAMPLE_SCRIPT = """
       }
 
       function buildExampleApiUrl(path) {
-        return `${exampleApiBaseUrl}${path}`;
+        return `${buildExampleApiOrigin()}/api${path}`;
+      }
+
+      function buildExampleApiOrigin() {
+        const hostname = window.location.hostname;
+        if (isIpHostname(hostname) || isLocalHostname(hostname)) {
+          return window.location.origin;
+        }
+
+        const apiHostname = buildExampleApiHostname(hostname);
+        if (!apiHostname) {
+          return fallbackExampleApiOrigin;
+        }
+
+        const port = window.location.port ? `:${window.location.port}` : "";
+        return `${window.location.protocol}//${apiHostname}${port}`;
+      }
+
+      function buildExampleApiHostname(hostname) {
+        if (hostname.includes("miot-api")) {
+          return hostname;
+        }
+        if (hostname.includes("miot-")) {
+          return hostname.replace("miot-", "miot-api-");
+        }
+        if (hostname.includes("miot.")) {
+          return hostname.replace("miot.", "miot-api.");
+        }
+        if (hostname.includes("miot")) {
+          return hostname.replace("miot", "miot-api");
+        }
+        return "";
+      }
+
+      function isIpHostname(hostname) {
+        return isIpv4Hostname(hostname) || hostname.includes(":");
+      }
+
+      function isIpv4Hostname(hostname) {
+        const parts = hostname.split(".");
+        return parts.length === 4 && parts.every((part) => {
+          if (!/^\\d+$/.test(part)) {
+            return false;
+          }
+          const value = Number(part);
+          return value >= 0 && value <= 255;
+        });
+      }
+
+      function isLocalHostname(hostname) {
+        return hostname === "localhost" || hostname.endsWith(".localhost");
       }
 
       function getExampleModeLabel(mode) {

@@ -318,7 +318,7 @@ LOGIN_PAGE_SCRIPT = (
         const exampleBox = document.createElement("div");
         exampleBox.className = "example-box";
         const exampleHint = document.createElement("p");
-        exampleHint.textContent = "下面的示例代码已经带上当前设备 did，并统一使用占位 token `YOUR_APP_TOKEN` 与示例 API 域名 `miot-api.example.com`。默认显示 curl；点击 js 后会切换成 JS fetch 示例。复制后把占位 token 和示例域名替换成真实值即可执行；如果设备需要显式选择 power 属性，请先在上方选定。";
+        exampleHint.textContent = "下面的示例代码已经带上当前设备 did，并统一使用占位 token `YOUR_APP_TOKEN`。示例 API 地址会根据当前页面地址自动推导：IP/localhost 直接复用当前地址，miot 域名会推成 miot-api 域名，无法识别时使用 `xxx.example.com`。默认显示 curl；点击 js 后会切换成 JS fetch 示例。复制后把占位 token 替换成真实 APP_TOKEN 即可执行；如果设备需要显式选择 power 属性，请先在上方选定。";
         exampleBox.appendChild(exampleHint);
 
         const modeSwitcher = document.createElement("div");
