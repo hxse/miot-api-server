@@ -17,6 +17,7 @@ from urllib import parse
 import qrcode
 from qrcode.image.svg import SvgImage
 import requests
+import mijiaAPI.devices as mijia_devices
 from mijiaAPI import (
     APIError,
     GetDeviceInfoError,
@@ -37,6 +38,13 @@ from miot_api_server.errors import (
     LoginSessionExpiredError,
     LoginSessionNotFoundError,
 )
+from miot_api_server.mijia_timeout import (
+    MIJIA_AUTH_REFRESH_TIMEOUT_SECONDS,
+    MIJIA_NETWORK_TIMEOUT_SECONDS,
+    TimeoutSession,
+    install_timeout_session,
+    scoped_requests_get_timeout,
+)
 from miot_api_server.schemas import (
     DevicePowerCapability,
     DevicePowerCandidate,
@@ -47,7 +55,6 @@ from miot_api_server.schemas import (
 POWER_PROPERTY_PRIORITY = ("on", "switch_status", "switch", "power", "status")
 POWER_PROPERTY_NAMES = frozenset(POWER_PROPERTY_PRIORITY)
 MIOT_SPEC_URL = "https://home.miot-spec.com/spec/"
-MIJIA_AUTH_REFRESH_TIMEOUT_SECONDS = 30
 LOGGER = logging.getLogger(__name__)
 
 
@@ -66,8 +73,17 @@ class MijiaProvider:
         self.settings = settings
         self.pending_logins: dict[str, PendingLoginSession] = {}
 
+    def _install_timeout_session(self, api: mijiaAPI) -> None:
+        install_timeout_session(api)
+
+    def _init_api_session(self, api: mijiaAPI) -> None:
+        api._init_session()
+        self._install_timeout_session(api)
+
     def _new_api(self) -> mijiaAPI:
-        return mijiaAPI(auth_data_path=str(self.settings.auth_path))
+        api = mijiaAPI(auth_data_path=str(self.settings.auth_path))
+        self._install_timeout_session(api)
+        return api
 
     def _new_business_api(self) -> mijiaAPI:
         try:
@@ -100,6 +116,7 @@ class MijiaProvider:
 
         if service_data.get("code") == 0:
             # 刷新认证链路必须有明确 timeout，避免业务 curl 被小米账号侧长时间挂住。
+            self._install_timeout_session(api)
             ret = api.session.get(
                 location,
                 timeout=MIJIA_AUTH_REFRESH_TIMEOUT_SECONDS,
@@ -120,7 +137,7 @@ class MijiaProvider:
                 and location_data.get("message") == "刷新Token成功"
             ):
                 api._save_auth_data()
-                api._init_session()
+                self._init_api_session(api)
                 return api
         except LoginError as exc:
             raise AuthenticationRequiredError(
@@ -139,7 +156,11 @@ class MijiaProvider:
 
     def _require_api(self) -> mijiaAPI:
         api = self._new_business_api()
-        if not api.available:
+        try:
+            available = api.available
+        except requests.exceptions.RequestException as exc:
+            raise LoginProcessError(f"米家认证探测请求失败：{exc}") from exc
+        if not available:
             if not self.settings.auth_path.exists():
                 raise AuthenticationRequiredError("米家账号尚未完成登录初始化")
             # 业务接口不应在旧认证文件可刷新时提前失败；刷新失败再要求重新扫码。
@@ -147,9 +168,17 @@ class MijiaProvider:
         return api
 
     def auth_status(self) -> dict[str, Any]:
-        api = self._new_api()
+        try:
+            api = self._new_api()
+            logged_in = api.available
+        except (JSONDecodeError, KeyError, TypeError):
+            logged_in = False
+        except requests.exceptions.RequestException as exc:
+            # 状态接口只表达当前认证可用性，米家状态探测失败不应升级成 500。
+            LOGGER.warning("Failed to check MIoT auth status: %s", exc)
+            logged_in = False
         return {
-            "logged_in": api.available,
+            "logged_in": logged_in,
             "has_auth_file": self.settings.auth_path.exists(),
             "pending_login_session_count": len(self.pending_logins),
         }
@@ -177,18 +206,31 @@ class MijiaProvider:
         return f"data:image/svg+xml;base64,{encoded}"
 
     def start_login(self) -> dict[str, Any]:
-        api = self._new_api()
-        if api.available:
+        try:
+            api = self._new_api()
+        except (JSONDecodeError, KeyError, TypeError) as exc:
+            raise LoginProcessError(f"米家登录初始化返回异常：{exc}") from exc
+        try:
+            available = api.available
+        except requests.exceptions.RequestException as exc:
+            raise LoginProcessError(f"米家认证探测请求失败：{exc}") from exc
+        if available:
             return {"already_logged_in": True}
 
-        # 这里复用 mijiaAPI 现成扫码流程的内部步骤，因此要求当前依赖解析保持在已验证版本。
-        location_data = api._get_location()
+        try:
+            location_data = self._request_auth_refresh_location(api)
+        except LoginError as exc:
+            raise LoginProcessError(str(exc)) from exc
+        except requests.exceptions.RequestException as exc:
+            raise LoginProcessError(f"米家认证刷新请求失败：{exc}") from exc
+        except (JSONDecodeError, KeyError, TypeError) as exc:
+            raise LoginProcessError(f"米家登录初始化返回异常：{exc}") from exc
         if (
             location_data.get("code") == 0
             and location_data.get("message") == "刷新Token成功"
         ):
             api._save_auth_data()
-            api._init_session()
+            self._init_api_session(api)
             return {"already_logged_in": True}
 
         location_data.update(
@@ -206,26 +248,39 @@ class MijiaProvider:
             "Content-Type": "application/x-www-form-urlencoded",
             "Connection": "keep-alive",
         }
-        login_ret = requests.get(
-            api.login_url, headers=headers, params=location_data, timeout=30
-        )
-        login_data = api._handle_ret(login_ret)
+        try:
+            login_ret = requests.get(
+                api.login_url,
+                headers=headers,
+                params=location_data,
+                timeout=MIJIA_NETWORK_TIMEOUT_SECONDS,
+            )
+            login_data = api._handle_ret(login_ret)
+            login_url = login_data["loginUrl"]
+            qr_image_url = login_data["qr"]
+            lp = login_data["lp"]
+        except requests.exceptions.RequestException as exc:
+            raise LoginProcessError(f"米家二维码登录请求失败：{exc}") from exc
+        except LoginError as exc:
+            raise LoginProcessError(str(exc)) from exc
+        except (JSONDecodeError, KeyError, TypeError) as exc:
+            raise LoginProcessError(f"米家二维码登录返回异常：{exc}") from exc
 
         session_id = secrets.token_urlsafe(18)
         self.pending_logins[session_id] = PendingLoginSession(
             session_id=session_id,
-            login_url=login_data["loginUrl"],
-            qr_image_url=login_data["qr"],
-            lp=login_data["lp"],
+            login_url=login_url,
+            qr_image_url=qr_image_url,
+            lp=lp,
             created_at=time.time(),
             auth_data=api.auth_data.copy(),
         )
         return {
             "already_logged_in": False,
             "session_id": session_id,
-            "login_url": login_data["loginUrl"],
-            "qr_image_url": login_data["qr"],
-            "qr_data_url": self._build_qr_data_url(login_data["loginUrl"]),
+            "login_url": login_url,
+            "qr_image_url": qr_image_url,
+            "qr_data_url": self._build_qr_data_url(login_url),
         }
 
     def finish_login(self, session_id: str, timeout_seconds: int) -> dict[str, Any]:
@@ -252,6 +307,8 @@ class MijiaProvider:
             raise LoginPendingError(
                 "二维码尚未确认，请继续在米家 APP 中完成扫码"
             ) from exc
+        except requests.exceptions.RequestException as exc:
+            raise LoginProcessError(f"米家扫码等待请求失败：{exc}") from exc
         except LoginError as exc:
             raise LoginProcessError(str(exc)) from exc
 
@@ -265,13 +322,20 @@ class MijiaProvider:
         ]
         for key in auth_keys:
             api.auth_data[key] = lp_data[key]
-        session.get(lp_data["location"], headers=headers, timeout=30)
+        try:
+            session.get(
+                lp_data["location"],
+                headers=headers,
+                timeout=MIJIA_NETWORK_TIMEOUT_SECONDS,
+            )
+        except requests.exceptions.RequestException as exc:
+            raise LoginProcessError(f"米家登录回调请求失败：{exc}") from exc
         api.auth_data.update(session.cookies.get_dict())
         api.auth_data["expireTime"] = int(
             (datetime.now() + timedelta(days=30)).timestamp() * 1000
         )
         api._save_auth_data()
-        api._init_session()
+        self._init_api_session(api)
         self.pending_logins.pop(session_id, None)
         return {
             "user_id": api.auth_data["userId"],
@@ -383,7 +447,7 @@ class MijiaProvider:
         response = requests.get(
             f"{MIOT_SPEC_URL}{model}",
             headers={"User-Agent": "miot-api-server/spec-parser"},
-            timeout=30,
+            timeout=MIJIA_NETWORK_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
 
@@ -406,9 +470,16 @@ class MijiaProvider:
             json.dump(result, file, indent=2, ensure_ascii=False)
         return result
 
+    def _miot_spec_requests_timeout(self):
+        return scoped_requests_get_timeout(mijia_devices.requests)
+
+    def _get_device_info_from_dependency(self, model: str) -> dict[str, Any]:
+        with self._miot_spec_requests_timeout():
+            return get_device_info(model, cache_path=self.settings.spec_cache_dir)
+
     def _get_device_info(self, model: str) -> dict[str, Any]:
         try:
-            return get_device_info(model, cache_path=self.settings.spec_cache_dir)
+            return self._get_device_info_from_dependency(model)
         except (JSONDecodeError, GetDeviceInfoError):
             LOGGER.info(
                 "Falling back to current MIoT spec page parser for model %s", model

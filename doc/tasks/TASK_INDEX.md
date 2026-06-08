@@ -1,5 +1,13 @@
 # Task Index
 
+## 2026-06-08-miot-network-timeout-hardening
+
+- 目标：彻底收口米家网络请求无 timeout 导致 curl 或网页登录卡住的问题，覆盖认证探测、认证刷新、设备列表、power 控制、MIoT spec 获取与登录回调。
+- 级别：`A` 类。
+- 当前状态：已完成代码落地与离线验证。
+- 已冻结内容：Provider 为 `mijiaAPI` 注入默认 timeout session；依赖版 MIoT spec 获取使用 scoped timeout patch；登录 start/finish 与 `/api/auth/status` 补齐 timeout 和异常边界；离线测试作为唯一验收输入。
+- 未在本任务中解决：真实小米云连通性、真实扫码、真实设备控制、`mijiaAPI` 升级、HTTP 重试与全局异步模型。
+
 ## 2026-06-08-miot-auth-refresh
 
 - 目标：修复 curl/API 业务请求与网页登录入口对米家认证文件刷新语义不一致的问题，让旧认证文件可刷新时业务请求可以自动恢复，而不是必须先回网页登录页触发刷新。
