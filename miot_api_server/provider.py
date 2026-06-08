@@ -12,6 +12,7 @@ import re
 import time
 import secrets
 from typing import Any
+from urllib import parse
 
 import qrcode
 from qrcode.image.svg import SvgImage
@@ -46,6 +47,7 @@ from miot_api_server.schemas import (
 POWER_PROPERTY_PRIORITY = ("on", "switch_status", "switch", "power", "status")
 POWER_PROPERTY_NAMES = frozenset(POWER_PROPERTY_PRIORITY)
 MIOT_SPEC_URL = "https://home.miot-spec.com/spec/"
+MIJIA_AUTH_REFRESH_TIMEOUT_SECONDS = 30
 LOGGER = logging.getLogger(__name__)
 
 
@@ -67,10 +69,81 @@ class MijiaProvider:
     def _new_api(self) -> mijiaAPI:
         return mijiaAPI(auth_data_path=str(self.settings.auth_path))
 
+    def _new_business_api(self) -> mijiaAPI:
+        try:
+            return self._new_api()
+        except (JSONDecodeError, KeyError, TypeError) as exc:
+            raise AuthenticationRequiredError(
+                "米家认证文件无效，请重置测试状态后重新扫码登录"
+            ) from exc
+
+    def _request_auth_refresh_location(self, api: mijiaAPI) -> dict[str, Any]:
+        headers = {
+            "User-Agent": api.user_agent,
+            "Connection": "keep-alive",
+            "Accept-Encoding": "gzip",
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Cookie": f"deviceId={api.deviceId};"
+            f"pass_o={api.pass_o};"
+            f"passToken={api.auth_data.get('passToken', '')};"
+            f"userId={api.auth_data.get('userId', '')};"
+            f"cUserId={api.auth_data.get('cUserId', '')};"
+            f"uLocale={api.locale};",
+        }
+        service_ret = requests.get(
+            api.service_login_url,
+            headers=headers,
+            timeout=MIJIA_AUTH_REFRESH_TIMEOUT_SECONDS,
+        )
+        service_data = api._handle_ret(service_ret, verify_code=False)
+        location = service_data["location"]
+
+        if service_data.get("code") == 0:
+            # 刷新认证链路必须有明确 timeout，避免业务 curl 被小米账号侧长时间挂住。
+            ret = api.session.get(
+                location,
+                timeout=MIJIA_AUTH_REFRESH_TIMEOUT_SECONDS,
+            )
+            if ret.status_code == 200 and ret.text == "ok":
+                api.auth_data.update(api.session.cookies.get_dict())
+                api.auth_data["ssecurity"] = service_data["ssecurity"]
+                return {"code": 0, "message": "刷新Token成功"}
+
+        location_data = parse.parse_qs(parse.urlparse(location).query)
+        return {key: value[0] for key, value in location_data.items()}
+
+    def _refresh_business_api(self, api: mijiaAPI) -> mijiaAPI:
+        try:
+            location_data = self._request_auth_refresh_location(api)
+            if (
+                location_data.get("code") == 0
+                and location_data.get("message") == "刷新Token成功"
+            ):
+                api._save_auth_data()
+                api._init_session()
+                return api
+        except LoginError as exc:
+            raise AuthenticationRequiredError(
+                "米家认证状态已失效，请重置测试状态后重新扫码登录"
+            ) from exc
+        except requests.exceptions.RequestException as exc:
+            raise LoginProcessError(f"米家认证刷新请求失败：{exc}") from exc
+        except (JSONDecodeError, KeyError, TypeError) as exc:
+            raise AuthenticationRequiredError(
+                "米家认证文件无效，请重置测试状态后重新扫码登录"
+            ) from exc
+
+        raise AuthenticationRequiredError(
+            "米家认证状态已失效，请重置测试状态后重新扫码登录"
+        )
+
     def _require_api(self) -> mijiaAPI:
-        api = self._new_api()
+        api = self._new_business_api()
         if not api.available:
-            raise AuthenticationRequiredError("米家账号尚未完成登录初始化")
+            if not self.settings.auth_path.exists():
+                raise AuthenticationRequiredError("米家账号尚未完成登录初始化")
+            # 业务接口不应在旧认证文件可刷新时提前失败；刷新失败再要求重新扫码。
+            return self._refresh_business_api(api)
         return api
 
     def auth_status(self) -> dict[str, Any]:

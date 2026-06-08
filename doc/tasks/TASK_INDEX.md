@@ -1,5 +1,13 @@
 # Task Index
 
+## 2026-06-08-miot-auth-refresh
+
+- 目标：修复 curl/API 业务请求与网页登录入口对米家认证文件刷新语义不一致的问题，让旧认证文件可刷新时业务请求可以自动恢复，而不是必须先回网页登录页触发刷新。
+- 级别：`A` 类。
+- 当前状态：已完成代码落地与离线验证。
+- 已冻结内容：业务入口先通过 `APP_TOKEN` 鉴权，再在米家认证文件存在但不可用时尝试一次带 timeout 的米家登录态刷新；刷新成功继续原业务请求，刷新失败返回 `authentication_required`；损坏或缺字段认证文件返回 `authentication_required`；`mijiaAPI==3.0.5`、扫码登录流程、认证文件路径和 Docker volume 语义不变。
+- 未在本任务中解决：`APP_TOKEN` 存储或轮换、`mijiaAPI` 升级、第二套小米认证协议实现、真实小米云扫码与真实设备控制验证。
+
 ## 2026-04-20.3-pydantic-input-contract
 
 - 目标：收紧公开请求体输入 contract，对登录完成请求的 `session_id` 与设备电源控制请求的 `property_name` 增加去空白、非空与长度约束。
